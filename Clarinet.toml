@@ -8,6 +8,10 @@ requirements = []
 path = "contracts/safe-forge-core.clar"
 depends_on = []
 
+[contracts.safe-forge-deployer]
+path = "contracts/safe-forge-deployer.clar"
+depends_on = []
+
 [repl]
 costs_version = 2
 parser_version = 2
