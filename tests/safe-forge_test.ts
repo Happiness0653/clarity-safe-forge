@@ -41,3 +41,30 @@ Clarinet.test({
     assertEquals(block.receipts[0].result.expectErr(), "u102");
   },
 });
+
+Clarinet.test({
+  name: "Test template creation and retrieval",
+  async fn(chain: Chain, accounts: Map<string, Account>) {
+    const deployer = accounts.get("deployer")!;
+    const templateId = 1;
+    const templateName = "Test Template";
+    
+    let block = chain.mineBlock([
+      Tx.contractCall("safe-forge-core", "add-template",
+        [types.uint(templateId), types.ascii(templateName)],
+        deployer.address
+      )
+    ]);
+    
+    assertEquals(block.receipts[0].result.expectOk(), true);
+    
+    let template = chain.callReadOnlyFn(
+      "safe-forge-core",
+      "get-template",
+      [types.uint(templateId)],
+      deployer.address
+    );
+    
+    assertEquals(template.result.expectSome().name, templateName);
+  },
+});
