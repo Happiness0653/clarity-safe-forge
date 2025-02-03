@@ -12,7 +12,8 @@
   { 
     name: (string-ascii 64),
     validated: bool,
-    owner: principal
+    owner: principal,
+    created-at: uint
   }
 )
 
@@ -38,7 +39,8 @@
       {
         name: name,
         validated: false,
-        owner: tx-sender
+        owner: tx-sender,
+        created-at: block-height
       }
     ))
   )
@@ -53,6 +55,10 @@
         {validated: true})
     ))
   )
+)
+
+(define-read-only (get-template (template-id uint))
+  (map-get? templates {template-id: template-id})
 )
 
 ;; Helper functions
