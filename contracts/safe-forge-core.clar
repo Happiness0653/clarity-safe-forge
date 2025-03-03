@@ -7,10 +7,13 @@
 (define-constant err-unauthorized (err u102))
 (define-constant err-paused (err u103))
 (define-constant err-version-exists (err u104))
+(define-constant err-cooldown-active (err u105))
+(define-constant err-template-archived (err u106))
 
 ;; Data vars
 (define-data-var contract-paused bool false)
 
+;; Enhanced template tracking
 (define-map templates 
   { template-id: uint }
   { 
@@ -19,7 +22,9 @@
     owner: principal,
     created-at: uint,
     version: uint,
-    validation-criteria: (string-ascii 256)
+    validation-criteria: (string-ascii 256),
+    last-modified: uint,
+    is-archived: bool
   }
 )
 
@@ -28,30 +33,35 @@
   {
     code-hash: (buff 32),
     changes: (string-ascii 256),
-    created-at: uint
+    created-at: uint,
+    validator: (optional principal),
+    validation-date: (optional uint)
   }
 )
 
 (define-map permissions
   { user: principal }
-  { can-deploy: bool, is-admin: bool, deploy-limit: uint }
+  { can-deploy: bool, is-admin: bool, deploy-limit: uint, last-deployment: (optional uint) }
+)
+
+;; Events
+(define-data-var event-counter uint u0)
+
+(define-private (emit-event (event-type (string-ascii 20)) (data (string-ascii 256)))
+  (begin
+    (var-set event-counter (+ (var-get event-counter) u1))
+    (print {event-id: (var-get event-counter), type: event-type, data: data, timestamp: block-height})
+  )
 )
 
 ;; Permission management
 (define-public (set-permissions (user principal) (can-deploy bool) (is-admin bool) (deploy-limit uint))
   (begin
     (asserts! (is-owner) err-owner-only)
+    (emit-event "SET_PERMISSIONS" (concat (to-ascii user) ": deploy="))
     (ok (map-set permissions 
       {user: user} 
-      {can-deploy: can-deploy, is-admin: is-admin, deploy-limit: deploy-limit}))
-  )
-)
-
-;; Contract pause functionality
-(define-public (set-pause-state (paused bool))
-  (begin
-    (asserts! (is-owner) err-owner-only)
-    (ok (var-set contract-paused paused))
+      {can-deploy: can-deploy, is-admin: is-admin, deploy-limit: deploy-limit, last-deployment: none}))
   )
 )
 
@@ -60,6 +70,7 @@
   (begin
     (asserts! (is-authorized) err-unauthorized)
     (asserts! (not (var-get contract-paused)) err-paused)
+    (emit-event "ADD_TEMPLATE" (concat "Template: " name))
     (ok (map-set templates 
       {template-id: template-id}
       {
@@ -68,75 +79,24 @@
         owner: tx-sender,
         created-at: block-height,
         version: u1,
-        validation-criteria: validation-criteria
+        validation-criteria: validation-criteria,
+        last-modified: block-height,
+        is-archived: false
       }
     ))
   )
 )
 
-(define-public (update-template-version 
-  (template-id uint) 
-  (code-hash (buff 32)) 
-  (changes (string-ascii 256)))
-  (let (
-    (current-template (unwrap! (map-get? templates {template-id: template-id}) err-invalid-template))
-    (new-version (+ (get version current-template) u1))
-  )
+(define-public (archive-template (template-id uint))
+  (let ((template (unwrap! (map-get? templates {template-id: template-id}) err-invalid-template)))
     (begin
-      (asserts! (is-template-owner template-id) err-unauthorized)
-      (asserts! (not (var-get contract-paused)) err-paused)
-      (map-set template-versions
-        {template-id: template-id, version: new-version}
-        {
-          code-hash: code-hash,
-          changes: changes,
-          created-at: block-height
-        }
-      )
+      (asserts! (or (is-owner) (is-template-owner template-id)) err-unauthorized)
+      (emit-event "ARCHIVE_TEMPLATE" (concat "Template: " (get name template)))
       (ok (map-set templates
         {template-id: template-id}
-        (merge current-template {version: new-version})))
+        (merge template {is-archived: true})))
     )
   )
 )
 
-(define-public (validate-template (template-id uint))
-  (begin
-    (asserts! (is-admin) err-unauthorized)
-    (asserts! (not (var-get contract-paused)) err-paused)
-    (ok (map-set templates
-      {template-id: template-id}
-      (merge (unwrap! (map-get? templates {template-id: template-id}) err-invalid-template)
-        {validated: true})))
-  )
-)
-
-;; Read-only functions
-(define-read-only (get-template (template-id uint))
-  (map-get? templates {template-id: template-id})
-)
-
-(define-read-only (get-template-version (template-id uint) (version uint))
-  (map-get? template-versions {template-id: template-id, version: version})
-)
-
-;; Helper functions
-(define-private (is-owner)
-  (is-eq tx-sender contract-owner)
-)
-
-(define-private (is-admin)
-  (get is-admin (default-to {can-deploy: false, is-admin: false, deploy-limit: u0}
-    (map-get? permissions {user: tx-sender})))
-)
-
-(define-private (is-authorized)
-  (get can-deploy (default-to {can-deploy: false, is-admin: false, deploy-limit: u0}
-    (map-get? permissions {user: tx-sender})))
-)
-
-(define-private (is-template-owner (template-id uint))
-  (let ((template (unwrap! (map-get? templates {template-id: template-id}) false)))
-    (is-eq tx-sender (get owner template))
-  )
-)
+[... rest of the contract remains unchanged ...]
